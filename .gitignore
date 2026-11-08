@@ -1,0 +1,33 @@
+# Build & release output directories
+build/
+build-*/
+build_*/
+out/
+dist/
+stage/
+package/
+package-*/
+Testing/
+crashdumps/
+
+# Compiled binaries & symbols
+*.obj
+*.o
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.a
+*.so
+*.dll
+*.dylib
+*.amx
+*.dmp
+
+# IDE & OS files
+.vs/
+.vscode/
+.idea/
+CMakeUserPresets.json
+Thumbs.db
+.DS_Store

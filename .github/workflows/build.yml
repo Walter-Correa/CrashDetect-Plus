@@ -1,0 +1,184 @@
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "*"
+      - "*/*"
+      - "**"
+  pull_request:
+    branches:
+      - "*"
+      - "*/*"
+      - "**"
+
+jobs:
+  build-windows:
+    name: Build Windows (${{ matrix.arch }})
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: Win32
+            label: x86
+            zip_name: CrashDetect-Plus-Windows.zip
+          - arch: x64
+            label: x64
+            zip_name: CrashDetect-Plus-Windows-x64.zip
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Configure CMake (${{ matrix.label }})
+        run: cmake -B build -A ${{ matrix.arch }} -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build Release (${{ matrix.label }})
+        run: cmake --build build --config Release
+
+      - name: Run Automated Tests (${{ matrix.label }})
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Prepare Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path package/plugins | Out-Null
+          New-Item -ItemType Directory -Force -Path package/components | Out-Null
+          New-Item -ItemType Directory -Force -Path package/include | Out-Null
+
+          # Copy Plugin DLL
+          $pluginDll = Get-ChildItem -Path "build" -Filter "crashdetect.dll" -Recurse | Where-Object { $_.FullName -notmatch "components" } | Select-Object -First 1
+          if ($pluginDll) { Copy-Item $pluginDll.FullName "package/plugins/crashdetect.dll" -Force }
+
+          # Copy Component DLL
+          $compDll = Get-ChildItem -Path "build" -Filter "crashdetect.dll" -Recurse | Where-Object { $_.FullName -match "components" } | Select-Object -First 1
+          if ($compDll) { Copy-Item $compDll.FullName "package/components/crashdetect.dll" -Force }
+
+          # Copy Includes, Examples, License and Third-Party Notices
+          if (Test-Path "crashdetect.inc") { Copy-Item "crashdetect.inc" "package/include/crashdetect.inc" -Force }
+          if (Test-Path "crashdetect_example.pwn") { Copy-Item "crashdetect_example.pwn" "package/crashdetect_example.pwn" -Force }
+          if (Test-Path "LICENSE") { Copy-Item "LICENSE" "package/LICENSE" -Force }
+          if (Test-Path "THIRD_PARTY_NOTICES.txt") { Copy-Item "THIRD_PARTY_NOTICES.txt" "package/THIRD_PARTY_NOTICES.txt" -Force }
+
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path package/* -DestinationPath "dist/${{ matrix.zip_name }}" -Force
+
+      - name: Upload Windows Artifact (${{ matrix.label }})
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.zip_name }}
+          path: dist/${{ matrix.zip_name }}
+
+  build-linux:
+    name: Build Linux (${{ matrix.label }})
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:20.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86
+            label: x86
+            cflags: "-m32"
+            zip_name: CrashDetect-Plus-Linux.zip
+          - arch: x64
+            label: x64
+            cflags: "-m64"
+            zip_name: CrashDetect-Plus-Linux-x64.zip
+
+    steps:
+      - name: Install Toolchain (glibc 2.31 compatibility)
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common git zip wget make build-essential binutils
+          add-apt-repository ppa:ubuntu-toolchain-r/test -y
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y make build-essential gcc-11 g++-11 gcc-11-multilib g++-11-multilib
+          update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 100
+          update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 100
+          wget -qO- "https://cmake.org/files/v3.26/cmake-3.26.5-linux-x86_64.tar.gz" | tar --strip-components=1 -xz -C /usr/local
+
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Configure CMake (${{ matrix.label }})
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=gcc-11 \
+            -DCMAKE_CXX_COMPILER=g++-11 \
+            -DCMAKE_C_FLAGS="${{ matrix.cflags }}" \
+            -DCMAKE_CXX_FLAGS="${{ matrix.cflags }}" \
+            -DCMAKE_SHARED_LINKER_FLAGS="${{ matrix.cflags }}" \
+            -DCMAKE_MODULE_LINKER_FLAGS="${{ matrix.cflags }}"
+
+      - name: Build Release (${{ matrix.label }})
+        run: cmake --build build --config Release
+
+      - name: Verify glibc <= 2.31 compatibility
+        run: |
+          check_glibc() {
+            local so_file="$1"
+            echo "=== Checking GLIBC requirements for $so_file ==="
+            if [ -z "$so_file" ] || [ ! -f "$so_file" ]; then
+              echo "Error: Binary '$so_file' not found!"
+              exit 1
+            fi
+            local versions
+            versions=$(objdump -T "$so_file" 2>/dev/null | grep -oE 'GLIBC_[0-9]+\.[0-9]+' | sed 's/GLIBC_//' | sort -V -u)
+            if [ -z "$versions" ]; then
+              echo "No dynamic GLIBC symbols found."
+              return 0
+            fi
+            echo "GLIBC symbols found:"
+            echo "$versions"
+            local max_ver
+            max_ver=$(echo "$versions" | tail -n 1)
+            echo "Highest GLIBC required: $max_ver"
+            local higher
+            higher=$(printf "%s\n%s\n" "2.31" "$max_ver" | sort -V | tail -n 1)
+            if [ "$higher" != "2.31" ]; then
+              echo "ERROR: $so_file requires GLIBC_$max_ver which exceeds maximum allowed GLIBC_2.31!"
+              exit 1
+            fi
+            echo "PASS: $so_file complies with GLIBC <= 2.31 (highest: GLIBC_$max_ver)"
+          }
+
+          PLUGIN_SO=$(find build -name "crashdetect.so" | grep -v "components" | head -n 1)
+          check_glibc "$PLUGIN_SO"
+
+          COMP_SO=$(find build -name "crashdetect.so" | grep "components" | head -n 1)
+          check_glibc "$COMP_SO"
+
+      - name: Run Automated Tests (${{ matrix.label }})
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Prepare Package
+        run: |
+          mkdir -p package/plugins package/components package/include
+
+          PLUGIN_SO=$(find build -name "crashdetect.so" | grep -v "components" | head -n 1)
+          [ -n "$PLUGIN_SO" ] && cp "$PLUGIN_SO" "package/plugins/crashdetect.so"
+
+          COMP_SO=$(find build -name "crashdetect.so" | grep "components" | head -n 1)
+          [ -n "$COMP_SO" ] && cp "$COMP_SO" "package/components/crashdetect.so"
+
+          [ -f "crashdetect.inc" ] && cp "crashdetect.inc" "package/include/crashdetect.inc"
+          [ -f "crashdetect_example.pwn" ] && cp "crashdetect_example.pwn" "package/crashdetect_example.pwn"
+          [ -f "LICENSE" ] && cp "LICENSE" "package/LICENSE"
+          [ -f "THIRD_PARTY_NOTICES.txt" ] && cp "THIRD_PARTY_NOTICES.txt" "package/THIRD_PARTY_NOTICES.txt"
+
+          mkdir -p dist
+          (cd package && zip -r "../dist/${{ matrix.zip_name }}" .)
+
+      - name: Upload Linux Artifact (${{ matrix.label }})
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.zip_name }}
+          path: dist/${{ matrix.zip_name }}

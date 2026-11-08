@@ -1,0 +1,49 @@
+{
+  "user": "Walter-Correa",
+  "repo": "CrashDetect-Plus",
+  "version": "1.0.0",
+  "include_path": ".",
+  "entry": "crashdetect_example.pwn",
+  "output": "gamemodes/crashdetect_example.amx",
+  "contributors": [
+    "Walter Correa",
+    "Y-Less",
+    "Zeex"
+  ],
+  "resources": [
+    {
+      "name": "^CrashDetect-Plus-Windows\\.zip$",
+      "platform": "windows",
+      "archive": true,
+      "includes": [
+        "include"
+      ],
+      "plugins": [
+        "plugins/crashdetect.dll"
+      ],
+      "files": {
+        "components/crashdetect.dll": "components/crashdetect.dll"
+      }
+    },
+    {
+      "name": "^CrashDetect-Plus-Linux\\.zip$",
+      "platform": "linux",
+      "archive": true,
+      "includes": [
+        "include"
+      ],
+      "plugins": [
+        "plugins/crashdetect.so"
+      ],
+      "files": {
+        "components/crashdetect.so": "components/crashdetect.so"
+      }
+    }
+  ],
+  "runtime": {
+    "mode": "main",
+    "plugins": [
+      "Walter-Correa/CrashDetect-Plus"
+    ]
+  }
+}
