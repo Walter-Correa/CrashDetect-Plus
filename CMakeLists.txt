@@ -96,11 +96,18 @@ else()
   )
 endif()
 
-if(MSVC)
-  target_compile_options(crashdetect_plus_core PRIVATE /W3 /MP /EHsc /utf-8)
-else()
-  target_compile_options(crashdetect_plus_core PRIVATE -Wall -Wextra -Wno-unused-parameter -fno-strict-aliasing)
+if(NOT MSVC)
+  set_source_files_properties(src/amx/amx.c src/amx/amxaux.c src/amx/amxdbg.c
+    PROPERTIES COMPILE_OPTIONS "-Wno-address-of-packed-member")
 endif()
+
+if(MSVC)
+  set(CDPLUS_COMMON_COMPILE_OPTIONS /W3 /MP /EHsc /utf-8)
+else()
+  set(CDPLUS_COMMON_COMPILE_OPTIONS -Wall -Wextra -Wno-unused-parameter -fno-strict-aliasing -Wno-attributes)
+endif()
+
+target_compile_options(crashdetect_plus_core PRIVATE ${CDPLUS_COMMON_COMPILE_OPTIONS})
 
 # ==============================================================================
 # Target 1: SA-MP Plugin (plugins/crashdetect.dll | plugins/crashdetect.so)
@@ -113,6 +120,7 @@ if(CDPLUS_BUILD_PLUGIN)
 
   add_library(crashdetect_plugin SHARED ${CDPLUS_PLUGIN_SOURCES})
   target_link_libraries(crashdetect_plugin PRIVATE crashdetect_plus_core)
+  target_compile_options(crashdetect_plugin PRIVATE ${CDPLUS_COMMON_COMPILE_OPTIONS})
 
   set_target_properties(crashdetect_plugin PROPERTIES
     PREFIX ""
@@ -143,6 +151,10 @@ if(CDPLUS_BUILD_COMPONENT AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/lib/open.mp-sd
   set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "Minimum CMake policy version for submodules" FORCE)
   add_subdirectory(lib/open.mp-sdk EXCLUDE_FROM_ALL)
 
+  if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.25" AND TARGET OMP-SDK)
+    set_property(TARGET OMP-SDK PROPERTY SYSTEM ON)
+  endif()
+
   set(CDPLUS_COMPONENT_SOURCES src/component.cpp)
   if(WIN32)
     list(APPEND CDPLUS_COMPONENT_SOURCES src/plugin.rc)
@@ -152,6 +164,18 @@ if(CDPLUS_BUILD_COMPONENT AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/lib/open.mp-sd
   target_link_libraries(crashdetect_component PRIVATE
     crashdetect_plus_core
     OMP-SDK
+  )
+  target_compile_options(crashdetect_component PRIVATE ${CDPLUS_COMMON_COMPILE_OPTIONS})
+  if(MSVC)
+    target_compile_options(crashdetect_component PRIVATE
+      /external:W0
+      /external:I${CMAKE_CURRENT_SOURCE_DIR}/lib/open.mp-sdk/include
+      /external:I${CMAKE_CURRENT_SOURCE_DIR}/lib/open.mp-sdk/lib/glm
+    )
+  endif()
+  target_include_directories(crashdetect_component SYSTEM PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/open.mp-sdk/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/open.mp-sdk/lib/glm
   )
 
   if(UNIX AND NOT APPLE)
@@ -184,9 +208,8 @@ if(CDPLUS_BUILD_TESTS)
     tests/crashdetect_plus_tests.cpp
   )
   target_link_libraries(crashdetect_plus_tests PRIVATE crashdetect_plus_core)
-  if(MSVC)
-    target_compile_options(crashdetect_plus_tests PRIVATE /W3 /EHsc /utf-8)
-  elseif(UNIX)
+  target_compile_options(crashdetect_plus_tests PRIVATE ${CDPLUS_COMMON_COMPILE_OPTIONS})
+  if(UNIX)
     target_link_options(crashdetect_plus_tests PRIVATE -rdynamic)
   endif()
   add_test(NAME CrashDetectPlusSuite COMMAND crashdetect_plus_tests)

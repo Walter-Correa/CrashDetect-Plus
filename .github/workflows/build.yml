@@ -35,7 +35,7 @@ jobs:
           fetch-depth: 0
 
       - name: Configure CMake (${{ matrix.label }})
-        run: cmake -B build -A ${{ matrix.arch }} -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -A ${{ matrix.arch }}
 
       - name: Build Release (${{ matrix.label }})
         run: cmake --build build --config Release

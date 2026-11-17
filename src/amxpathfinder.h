@@ -49,7 +49,6 @@ class AMXPathFinder {
 
   static AMXPathFinder &shared();
 
- private:
   struct AMXFingerprint {
     AMX_HEADER header{};
     uint64_t nametable_hash = 0;
@@ -62,6 +61,7 @@ class AMXPathFinder {
   static AMXFingerprint ComputeFromMemory(const AMX *amx);
   static AMXFingerprint ComputeFromFile(const std::string &filename);
 
+ private:
   std::vector<std::string> search_paths_;
   std::unordered_map<std::string, AMXFingerprint> disk_cache_;
   std::unordered_map<AMX *, std::string> amx_to_path_;

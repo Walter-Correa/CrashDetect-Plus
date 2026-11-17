@@ -1427,6 +1427,8 @@ void TestPruningAndCollisionDetection() {
       payload_copy = captured_payload;
     }
     CHECK(payload_copy.find("Server crashed while executing grandlarc.amx") != std::string::npos);
+    // Criterion 6: payload must be clean without trailing null characters
+    CHECK(payload_copy.find('\0') == std::string::npos);
 
     // A second PluginLoad() sees the existing .sent file and does NOT attempt to re-send
     CrashDetect::PluginUnload();
@@ -1439,6 +1441,41 @@ void TestPruningAndCollisionDetection() {
 
     opts.set_discord_webhook(old_wh);
     opts.set_minidump_dir(old_dir);
+
+    // Criterion 7: AMXPathFinder discovers matching .amx and header size/cod/dat match exactly
+    {
+      SyntheticAmxBuilder b(4);
+      b.Emit(AMX_OP_HALT);
+      b.Emit(0);
+      auto b_bytes = b.BuildFileBytes();
+      std::string test_amx_path = hook_dir + "/finder_test.amx";
+      std::FILE *afp = fileutils::OpenUtf8File(test_amx_path, "wb");
+      CHECK(afp != nullptr);
+      const std::size_t written = std::fwrite(b_bytes.data(), 1, b_bytes.size(), afp);
+      CHECK(written == b_bytes.size());
+      std::fclose(afp);
+
+      AMX test_amx = {};
+      CHECK(aux_LoadProgram(&test_amx, test_amx_path.c_str(), nullptr) == AMX_ERR_NONE);
+
+      auto fp_file = AMXPathFinder::ComputeFromFile(test_amx_path);
+      auto fp_mem = AMXPathFinder::ComputeFromMemory(&test_amx);
+
+      CHECK(fp_file.valid);
+      CHECK(fp_mem.valid);
+      CHECK(fp_file.Matches(fp_mem));
+      CHECK(fp_file.header.size == fp_mem.header.size);
+      CHECK(fp_file.header.cod == fp_mem.header.cod);
+      CHECK(fp_file.header.dat == fp_mem.header.dat);
+
+      AMXPathFinder::shared().AddSearchPath(hook_dir);
+      std::string found = AMXPathFinder::shared().Find(&test_amx);
+      CHECK(!found.empty());
+      CHECK(fileutils::GetFileName(found) == "finder_test.amx");
+
+      aux_FreeProgram(&test_amx);
+    }
+
     std::filesystem::remove_all(hook_dir);
   }
 

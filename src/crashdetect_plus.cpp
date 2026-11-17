@@ -79,7 +79,14 @@
 #define AMX_EXEC_GDK    (-10)
 #define AMX_EXEC_GDK_42 (-10000)
 
-extern "C" std::atomic<int> g_cdplus_lct_pending{0};
+// Accessed from C code (src/amx/amx.c) as a plain int via atomic builtins.
+// This is valid and ABI-compatible because std::atomic<int> has identical
+// size and alignment to int and is guaranteed lock-free.
+static_assert(sizeof(std::atomic<int>) == sizeof(int) && std::atomic<int>::is_always_lock_free);
+
+extern "C" {
+  std::atomic<int> g_cdplus_lct_pending{0};
+}
 
 namespace {
 
@@ -258,7 +265,8 @@ std::string WriteReportFileToDisk(std::string_view full_report,
   if (fp == nullptr) {
     return {};
   }
-  std::fwrite(full_report.data(), 1, full_report.size(), fp);
+  const std::size_t written = std::fwrite(full_report.data(), 1, full_report.size(), fp);
+  (void)written;
   std::fflush(fp);
   std::fclose(fp);
   return std::string(path_buf);
@@ -666,7 +674,8 @@ void CheckAndDispatchPendingCrashAlert() {
     if (sz > 0 && sz < 512 * 1024) {
       log_content.resize(static_cast<std::size_t>(sz));
       std::fseek(fp, 0, SEEK_SET);
-      std::fread(log_content.data(), 1, log_content.size(), fp);
+      const std::size_t lidos = std::fread(log_content.data(), 1, log_content.size(), fp);
+      log_content.resize(lidos);
     }
     std::fclose(fp);
   }
@@ -676,7 +685,8 @@ void CheckAndDispatchPendingCrashAlert() {
     std::FILE *sfp = fileutils::OpenUtf8File(fileutils::PathToUtf8(item.sent_path), "wb");
     if (sfp != nullptr) {
       const char *marker = "sent\n";
-      std::fwrite(marker, 1, std::strlen(marker), sfp);
+      const std::size_t written = std::fwrite(marker, 1, std::strlen(marker), sfp);
+      (void)written;
       std::fclose(sfp);
     }
   }

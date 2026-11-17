@@ -26,6 +26,7 @@
 #include "amxpathfinder.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 
@@ -33,6 +34,32 @@
 #include "fileutils.h"
 
 namespace {
+
+inline void AlignBytes16(unsigned char *p) {
+  uint16_t tmp;
+  std::memcpy(&tmp, p, sizeof(tmp));
+  amx_Align16(&tmp);
+  std::memcpy(p, &tmp, sizeof(tmp));
+}
+
+inline void AlignBytes32(unsigned char *p) {
+  uint32_t tmp;
+  std::memcpy(&tmp, p, sizeof(tmp));
+  amx_Align32(&tmp);
+  std::memcpy(p, &tmp, sizeof(tmp));
+}
+
+#define ALIGN_HDR16(h, field)                                                  \
+  do {                                                                         \
+    static_assert(sizeof(AMX_HEADER::field) == 2, "Field must be 16-bit");     \
+    AlignBytes16(reinterpret_cast<unsigned char *>(&(h)) + offsetof(AMX_HEADER, field)); \
+  } while (0)
+
+#define ALIGN_HDR32(h, field)                                                  \
+  do {                                                                         \
+    static_assert(sizeof(AMX_HEADER::field) == 4, "Field must be 32-bit");     \
+    AlignBytes32(reinterpret_cast<unsigned char *>(&(h)) + offsetof(AMX_HEADER, field)); \
+  } while (0)
 
 uint64_t HashBytesFNV1a(const unsigned char *data, std::size_t len) {
   uint64_t hash = 14695981039346656037ULL;
@@ -119,26 +146,26 @@ AMXPathFinder::AMXFingerprint AMXPathFinder::ComputeFromFile(
     std::fclose(file);
     return fp;
   }
-  amx_Align16(&hdr.magic);
+  ALIGN_HDR16(hdr, magic);
   if (hdr.magic != AMX_MAGIC) {
     std::fclose(file);
     return fp;
   }
 
-  amx_Align32(reinterpret_cast<uint32_t *>(&hdr.size));
-  amx_Align16(reinterpret_cast<uint16_t *>(&hdr.flags));
-  amx_Align16(reinterpret_cast<uint16_t *>(&hdr.defsize));
-  amx_Align32(reinterpret_cast<uint32_t *>(&hdr.cod));
-  amx_Align32(reinterpret_cast<uint32_t *>(&hdr.dat));
-  amx_Align32(reinterpret_cast<uint32_t *>(&hdr.hea));
-  amx_Align32(reinterpret_cast<uint32_t *>(&hdr.stp));
-  amx_Align32(reinterpret_cast<uint32_t *>(&hdr.cip));
-  amx_Align32(reinterpret_cast<uint32_t *>(&hdr.publics));
-  amx_Align32(reinterpret_cast<uint32_t *>(&hdr.natives));
-  amx_Align32(reinterpret_cast<uint32_t *>(&hdr.libraries));
-  amx_Align32(reinterpret_cast<uint32_t *>(&hdr.pubvars));
-  amx_Align32(reinterpret_cast<uint32_t *>(&hdr.tags));
-  amx_Align32(reinterpret_cast<uint32_t *>(&hdr.nametable));
+  ALIGN_HDR32(hdr, size);
+  ALIGN_HDR16(hdr, flags);
+  ALIGN_HDR16(hdr, defsize);
+  ALIGN_HDR32(hdr, cod);
+  ALIGN_HDR32(hdr, dat);
+  ALIGN_HDR32(hdr, hea);
+  ALIGN_HDR32(hdr, stp);
+  ALIGN_HDR32(hdr, cip);
+  ALIGN_HDR32(hdr, publics);
+  ALIGN_HDR32(hdr, natives);
+  ALIGN_HDR32(hdr, libraries);
+  ALIGN_HDR32(hdr, pubvars);
+  ALIGN_HDR32(hdr, tags);
+  ALIGN_HDR32(hdr, nametable);
 
   if (hdr.cod < static_cast<int32_t>(sizeof(AMX_HEADER)) ||
       hdr.cod > 16 * 1024 * 1024) {
